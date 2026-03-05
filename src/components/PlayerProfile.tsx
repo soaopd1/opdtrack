@@ -19,15 +19,7 @@ function WeaponSlot({ name, iconUrl }: { name: string; iconUrl?: string | null }
   );
 }
 
-const WEAPON_SLOTS = [
-  { key: 'sidearms', label: 'Sidearms', names: ['Classic','Shorty','Frenzy','Ghost','Sheriff'] },
-  { key: 'smgs', label: 'SMGs', names: ['Stinger','Spectre'] },
-  { key: 'shotguns', label: 'Shotguns', names: ['Bucky','Judge'] },
-  { key: 'rifles', label: 'Rifles', names: ['Bulldog','Guardian','Phantom','Vandal'] },
-  { key: 'melee', label: 'Melee', names: ['Melee'] },
-  { key: 'snipers', label: 'Sniper Rifles', names: ['Marshal','Outlaw','Operator'] },
-  { key: 'heavies', label: 'Machine Guns', names: ['Ares','Odin'] },
-];
+
 
 export default function PlayerProfile({ player, isEnemy, onClose }: PlayerProfileProps) {
   const rankName = getTierName(player.rankTier);

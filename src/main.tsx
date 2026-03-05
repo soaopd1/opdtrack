@@ -4,4 +4,8 @@ import App from './App';
 import './index.css';
 
 const container = document.getElementById('root')!;
-createRoot(container).render(<App />);
+createRoot(container).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);

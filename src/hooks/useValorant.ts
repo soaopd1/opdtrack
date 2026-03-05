@@ -26,6 +26,7 @@ export function useValorant() {
 
   const prevGameState = useRef<GameState>('loading');
   const isFetchingMatch = useRef(false);
+  const wasInMatch = useRef(false);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -75,9 +76,14 @@ export function useValorant() {
       queueId,
       loading: false,
       error: running ? null : 'VALORANT is not running',
-      // Clear match data when leaving a match
-      match: (stateChanged && !inMatch) ? null : prev.match,
+      // Clear match data when leaving a match, but not while a fetch is in-flight
+      match: (stateChanged && !inMatch && !isFetchingMatch.current) ? null : prev.match,
     }));
+
+    // Track match → menus transition for history refetch
+    if (inMatch) {
+      wasInMatch.current = true;
+    }
 
     if (inMatch) {
       const match = await fetchMatch();
@@ -94,9 +100,10 @@ export function useValorant() {
     });
   }, [fetchHistory]);
 
-  // Refresh history when coming back to MENUS from a match
+  // Refresh history only when transitioning from INGAME/PREGAME → MENUS
   useEffect(() => {
-    if (state.gameState === 'MENUS') {
+    if (state.gameState === 'MENUS' && wasInMatch.current) {
+      wasInMatch.current = false;
       // Small delay to let Riot update their API
       const timer = setTimeout(() => {
         fetchHistory().then(history => {

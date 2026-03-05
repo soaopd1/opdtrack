@@ -9,7 +9,12 @@ const axios = require('axios');
 const app = express();
 app.use(express.json());
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
+  const origin = req.headers.origin;
+  if (origin && (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1'))) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+  res.header('Access-Control-Allow-Methods', 'GET, PUT, POST, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   next();
 });
 
@@ -21,6 +26,16 @@ const axiosInstance = axios.create({ httpsAgent });
 let authCache = null;          // { headers, puuid, pdUrl, glzUrl, region }
 let contentCache = null;       // { agents, mapUrls, seasons, timestamp }
 const CONTENT_TTL = 60 * 60 * 1000; // 1 hour
+
+// ─── Concurrency limiter ──────────────────────────────────────────────────────
+async function batchedPromises(items, fn, concurrency = 3) {
+  const results = [];
+  for (let i = 0; i < items.length; i += concurrency) {
+    const batch = items.slice(i, i + concurrency);
+    results.push(...(await Promise.all(batch.map(fn))));
+  }
+  return results;
+}
 
 // ─── Rank helpers ─────────────────────────────────────────────────────────────
 const TIER_NAMES = [
@@ -241,9 +256,10 @@ async function getContent() {
   if (contentCache && now - contentCache.timestamp < CONTENT_TTL) return contentCache;
 
   try {
-    const [agentsRes, mapsRes] = await Promise.all([
+    const [agentsRes, mapsRes, weaponsRes] = await Promise.all([
       axios.get('https://valorant-api.com/v1/agents?isPlayableCharacter=true', { timeout: 10000 }),
       axios.get('https://valorant-api.com/v1/maps', { timeout: 10000 }),
+      axios.get('https://valorant-api.com/v1/weapons', { timeout: 10000 }),
     ]);
 
     const agents = {};
@@ -258,9 +274,6 @@ async function getContent() {
     for (const m of mapsRes.data.data) {
       if (m.mapUrl) mapUrls[m.mapUrl.toLowerCase()] = m.displayName;
     }
-
-    // Get weapons for skin lookups
-    const weaponsRes = await axios.get('https://valorant-api.com/v1/weapons', { timeout: 10000 });
     const weaponSkins = {};
     const weaponNames = {};
     for (const w of weaponsRes.data.data) {
@@ -549,19 +562,14 @@ app.get('/api/live-match', async (req, res) => {
 
     const allPuuids = allPlayers.map(p => p.Subject);
 
-    // Get names and ranks in parallel
-    const [names, ...rankResults] = await Promise.all([
-      getPlayerNames(allPuuids),
-      ...allPuuids.map(puuid => getPlayerRank(puuid, seasonId)),
-    ]);
+    // Get names first, then batch ranks and history with concurrency limit
+    const names = await getPlayerNames(allPuuids);
 
+    const rankResults = await batchedPromises(allPuuids, puuid => getPlayerRank(puuid, seasonId), 3);
     const rankMap = {};
     allPuuids.forEach((puuid, i) => { rankMap[puuid] = rankResults[i]; });
 
-    // Get history for all players in parallel
-    const historyResults = await Promise.all(
-      allPuuids.map(puuid => getCompetitiveHistory(puuid, 5))
-    );
+    const historyResults = await batchedPromises(allPuuids, puuid => getCompetitiveHistory(puuid, 5), 3);
     const historyMap = {};
     allPuuids.forEach((puuid, i) => { historyMap[puuid] = historyResults[i]; });
 
@@ -634,7 +642,7 @@ app.get('/api/live-match', async (req, res) => {
 
   } catch (e) {
     console.error('live-match error:', e.message);
-    return res.status(500).json({ error: e.message });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -656,12 +664,19 @@ app.get('/api/history', async (req, res) => {
       return res.json({ matches: [] });
     }
 
-    // Fetch match details in parallel (limited to avoid rate limits)
-    const matchDetails = await Promise.allSettled(
-      updatesData.Matches.slice(0, 10).map(async (m) => {
-        const detail = await pdFetch(`/match-details/v1/matches/${m.MatchID}`, 'get');
-        return { update: m, detail };
-      })
+    // Fetch match details with concurrency limit to avoid rate limits
+    const matchesToFetch = updatesData.Matches.slice(0, 10);
+    const matchDetails = await batchedPromises(
+      matchesToFetch,
+      async (m) => {
+        try {
+          const detail = await pdFetch(`/match-details/v1/matches/${m.MatchID}`, 'get');
+          return { status: 'fulfilled', value: { update: m, detail } };
+        } catch (e) {
+          return { status: 'rejected' };
+        }
+      },
+      3
     );
 
     const matches = [];
@@ -724,7 +739,7 @@ app.get('/api/history', async (req, res) => {
     return res.json({ matches });
   } catch (e) {
     console.error('history error:', e.message);
-    return res.status(500).json({ error: e.message });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 

@@ -114,8 +114,8 @@ export default function PlayerCard({ player, isEnemy = false, onClick }: PlayerC
       {/* History dots */}
       {player.history.length > 0 && (
         <div className="flex space-x-2 mt-1">
-          {player.history.map((entry, index) => (
-            <div key={index} className="flex flex-col items-center gap-0.5">
+          {player.history.map((entry) => (
+            <div key={entry.matchId} className="flex flex-col items-center gap-0.5">
               <div className={`w-2.5 h-2.5 rounded-full ${entry.result === 'win' ? 'bg-emerald-500' : 'bg-primary'}`} />
               <span className={`text-[8px] font-mono font-bold leading-none ${entry.result === 'win' ? 'text-emerald-500' : 'text-primary'}`}>
                 {entry.result === 'win' ? '+' : '-'}{entry.rrChange}

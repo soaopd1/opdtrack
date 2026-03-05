@@ -31,7 +31,7 @@ export default function App() {
       );
     }
 
-    if (gameState === 'NOT_RUNNING' || !error === false) {
+    if (gameState === 'NOT_RUNNING' || error) {
       return (
         <div className="flex-grow flex items-center justify-center">
           <div className="text-center space-y-4 max-w-md">
